@@ -18,60 +18,57 @@ import {
   getEnableClickToPay,
 } from '../utility/config';
 
+import {
+  createUnzerPaymentEl,
+  createUnzerCheckoutEl,
+} from '../dom/createElements';
+
 export default function UnzerCards({ method, selected, actions }) {
   const methodCode = method?.code || 'unzer_cards';
   const isSelected = methodCode === selected?.code;
 
-  // Wait until Unzer web components are registered (cards + checkout)
+  // Wait until Unzer SDK is ready
   const sdkReady = useUnzerSdk({
     components: ['unzer-card'],
     waitForCheckout: true,
   });
 
-  // Read configuration from Hyvä checkout config
+  // Read config values
   const publicKey = getUnzerPublicKey(methodCode);
   const locale = getLocale();
-  const enableCTP = getEnableClickToPay(methodCode); // true/false
+  const enableCTP = getEnableClickToPay(methodCode);
 
+  // DOM refs
   const mountRef = useRef(null);
   const paymentElRef = useRef(null);
   const checkoutElRef = useRef(null);
 
+  // Mount Unzer UI
   useEffect(() => {
     if (!isSelected || !sdkReady || !mountRef.current) return;
 
-    // Clear the container and mount components from scratch
+    // Clear and rebuild from scratch
     mountRef.current.innerHTML = '';
 
-    // <unzer-payment>
-    const up = document.createElement('unzer-payment');
-    up.id = `unzer-payment-${methodCode}`;
-    if (publicKey) up.setAttribute('publicKey', publicKey);
-    if (locale) up.setAttribute('locale', locale);
-    if (!enableCTP) up.setAttribute('disableCTP', 'true');
+    // ✅ use helper functions
+    const unzerPaymentEl = createUnzerPaymentEl({
+      methodCode,
+      publicKey,
+      locale,
+      enableCTP,
+      paymentTag: 'unzer-card',
+    });
 
-    // <unzer-card>
-    const cardEl = document.createElement('unzer-card');
-    up.appendChild(cardEl);
+    const unzerCheckoutEl = createUnzerCheckoutEl(methodCode);
 
-    // (optional) <unzer-checkout> + hidden submit
-    const checkout = document.createElement('unzer-checkout');
-    checkout.id = `unzer-checkout-${methodCode}`;
-    const hiddenBtn = document.createElement('button');
-    hiddenBtn.type = 'submit';
-    hiddenBtn.id = `unzer-submit-${methodCode}`;
-    hiddenBtn.style.display = 'none';
-    checkout.appendChild(hiddenBtn);
+    mountRef.current.appendChild(unzerPaymentEl);
+    mountRef.current.appendChild(unzerCheckoutEl);
 
-    // Append elements to the DOM
-    mountRef.current.appendChild(up);
-    mountRef.current.appendChild(checkout);
+    // Keep refs
+    paymentElRef.current = unzerPaymentEl;
+    checkoutElRef.current = unzerCheckoutEl;
 
-    // Keep element references for later use
-    paymentElRef.current = up;
-    checkoutElRef.current = checkout;
-
-    // Cleanup when the component unmounts
+    // Cleanup on unmount
     return () => {
       if (mountRef.current) mountRef.current.innerHTML = '';
       paymentElRef.current = null;
