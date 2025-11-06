@@ -28,9 +28,20 @@ import useCheckoutFormContext from '../../../../hook/useCheckoutFormContext';
 import usePerformPlaceOrderByREST from '../../../../hook/usePerformPlaceOrderByREST';
 import useAppContext from '../../../../hook/useAppContext';
 
+import useCartContext from '../../../../hook/useCartContext';
+import {
+  buildSnapshot,
+  primeBasketAndCustomerData,
+  refreshUnzerFromContexts,
+} from '../utility/snapshot';
+
+ // bacite pogled na tabelu Evrolige
 export default function UnzerCards({ method, selected, actions }) {
   const methodCode = method?.code || 'unzer_cards';
   const isSelected = methodCode === selected?.code;
+
+  const cartCtx = useCartContext();
+  const appCtx = useAppContext();
 
   const { registerPaymentAction } = useCheckoutFormContext();
   const performPlaceOrder = usePerformPlaceOrderByREST(methodCode);
@@ -81,6 +92,8 @@ export default function UnzerCards({ method, selected, actions }) {
     // Store references
     paymentElRef.current = unzerPaymentEl;
     checkoutElRef.current = unzerCheckoutEl;
+
+    refreshUnzerFromContexts(paymentElRef.current, cartCtx.cart, appCtx);
 
     // Cleanup when unmounted
     return () => {
@@ -133,6 +146,9 @@ export default function UnzerCards({ method, selected, actions }) {
 
         // Set listener before triggering the Unzer submit
         const submitPromise = makeSubmitPromise(checkoutEl, { methodCode });
+
+        refreshUnzerFromContexts(paymentElRef.current, cartCtx.cart, appCtx);
+
         submittingRef.current = true;
         inflightRef.current = submitPromise;
 
