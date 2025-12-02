@@ -18,15 +18,27 @@ export function makeSubmitPromise(unzerCheckoutEl, { methodCode }) {
 
     unzerCheckoutEl.onPaymentSubmit = async (resp) => {
       try {
+        console.log('[Unzer] Response type:', typeof resp);
+        console.log('[Unzer] Response:', resp);
+        if (!resp || typeof resp !== 'object') {
+          reject(new Error('Invalid response from Unzer: ' + typeof resp));
+          return;
+        }
+
+        if (!resp.submitResponse) {
+          reject(new Error('Missing submitResponse in Unzer response'));
+          return;
+        }
+
         const ok =
-          resp?.submitResponse?.success ||
-          resp?.submitResponse?.status === 'SUCCESS';
+            resp?.submitResponse?.success ||
+            resp?.submitResponse?.status === 'SUCCESS';
 
         if (!ok) {
           const msg =
-            resp?.submitResponse?.message ||
-            resp?.submitResponse?.details?.customerMessage ||
-            'Payment failed';
+              resp?.submitResponse?.message ||
+              resp?.submitResponse?.details?.customerMessage ||
+              'Payment failed';
           reject(new Error(msg));
           return;
         }

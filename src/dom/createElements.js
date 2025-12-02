@@ -34,12 +34,12 @@
  * @returns {HTMLElement} The configured <unzer-payment> element
  */
 export function createUnzerPaymentEl({
-  methodCode,
-  publicKey,
-  locale,
-  enableCTP = true,
-  paymentTag,
-}) {
+                                       methodCode,
+                                       publicKey,
+                                       locale,
+                                       enableCTP = true,
+                                       paymentTag,
+                                     }) {
   const el = document.createElement('unzer-payment');
   el.id = `unzer-payment-${methodCode}`;
 
