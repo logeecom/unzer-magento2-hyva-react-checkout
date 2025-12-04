@@ -1,318 +1,87 @@
 /* eslint-disable */
-/**
- * UnzerCards (display-only)
- *
- * - Loads the Unzer UI SDK via the useUnzerSdk hook
- * - Reads configuration from Hyvä’s data-checkout_config via utility/config
- * - Mounts <unzer-payment>, <unzer-card>, and optionally <unzer-checkout> elements
- */
-import React, { useEffect, useRef, useState } from 'react';
-import { shape, func } from 'prop-types';
-import { paymentMethodShape } from '../../../../utils/payment';
-import RadioInput from '../../../../components/common/Form/RadioInput';
+import React from 'react';
+import BaseUnzerRedirect from './BaseUnzerRedirect';
 
-import useUnzerSdk from '../hooks/useUnzerSdk';
-import {
-    getUnzerPublicKey,
-    getLocale,
-    getEnableClickToPay,
-} from '../utility/config';
-
-import {
-    createUnzerPaymentEl,
-    createUnzerCheckoutEl,
-} from '../dom/createElements';
-
-import { makeSubmitPromise } from '../dom/submit';
-import useCheckoutFormContext from '../../../../hook/useCheckoutFormContext';
-import usePerformPlaceOrderByREST from '../../../../hook/usePerformPlaceOrderByREST';
+import useUnzerPerformPlaceOrder from '../hooks/useUnzerPlaceOrder';
 import useAppContext from '../../../../hook/useAppContext';
-import useCartContext from '../../../../hook/useCartContext';
-import {
-    buildSnapshot,
-    primeBasketAndCustomerData,
-    refreshUnzerFromContexts,
-} from '../utility/snapshot';
+import { makeSubmitPromise } from '../dom/submit';
 
-export default function UnzerCards({ method, selected, actions }) {
-    const methodCode = method?.code || 'unzer_cards';
-    const isSelected = methodCode === selected?.code;
+export default function UnzerCards(props) {
+    const methodCode = props.method?.code || 'unzer_cards';
+    const performPlaceOrder = useUnzerPerformPlaceOrder(methodCode);
+    const { setPageLoader, setErrorMessage, isLoggedIn } = useAppContext();
 
-    const cartCtx = useCartContext();
-    const appCtx = useAppContext();
-
-    const { registerPaymentAction } = useCheckoutFormContext();
-    const performPlaceOrder = usePerformPlaceOrderByREST(methodCode);
-    const { setPageLoader, setErrorMessage } = useAppContext();
-
-    // Wait until Unzer SDK is ready
-    const sdkReady = useUnzerSdk({
-        components: ['unzer-card'],
-        waitForCheckout: true,
-    });
-
-    // Read config values
-    const publicKey = getUnzerPublicKey(methodCode);
-    const locale = getLocale();
-    const enableCTP = getEnableClickToPay(methodCode);
-
-    // DOM refs
-    const mountRef = useRef(null);
-    const paymentElRef = useRef(null);
-    const checkoutElRef = useRef(null);
-
-    // Guard refs to prevent duplicate submissions
-    const submittingRef = useRef(false);
-    const inflightRef = useRef(null);
-    const registeredRef = useRef(false);
-
-    const [hasMounted, setHasMounted] = useState(false);
-
-    useEffect(() => {
-        console.log('[UnzerCards] Mount effect triggered', {
-            isSelected,
-            sdkReady,
-            hasMounted,
-            mountRef: !!mountRef.current,
-        });
-
-        if (!isSelected || !sdkReady || !mountRef.current) {
-            return;
-        }
-
-        console.log('[UnzerCards] Mounting Unzer UI elements');
-
-        mountRef.current.innerHTML = '';
-
-        const unzerPaymentEl = createUnzerPaymentEl({
-            methodCode,
-            publicKey,
-            locale,
-            enableCTP,
-            paymentTag: 'unzer-card',
-        });
-
-        const unzerCheckoutEl = createUnzerCheckoutEl(methodCode);
-
-        mountRef.current.appendChild(unzerPaymentEl);
-        mountRef.current.appendChild(unzerCheckoutEl);
-
-        paymentElRef.current = unzerPaymentEl;
-        checkoutElRef.current = unzerCheckoutEl;
-
-        setHasMounted(true);
-
-        refreshUnzerFromContexts(paymentElRef.current, cartCtx.cart, appCtx);
-
-        return () => {
-            if (!isSelected) {
-                console.log('[UnzerCards] Cleaning up (payment method deselected)');
-                if (mountRef.current) {
-                    mountRef.current.innerHTML = '';
-                }
-                paymentElRef.current = null;
-                checkoutElRef.current = null;
-                setHasMounted(false);
-            }
-        };
-    }, [isSelected, sdkReady, publicKey, locale, enableCTP, methodCode]);
-
-    useEffect(() => {
-        if (isSelected && sdkReady && mountRef.current && !paymentElRef.current) {
-            console.log(
-                '[UnzerCards] Elements missing but should be mounted, re-mounting...'
-            );
-
-            const timer = setTimeout(() => {
-                if (mountRef.current && isSelected) {
-                    mountRef.current.innerHTML = '';
-
-                    const unzerPaymentEl = createUnzerPaymentEl({
-                        methodCode,
-                        publicKey,
-                        locale,
-                        enableCTP,
-                        paymentTag: 'unzer-card',
-                    });
-
-                    const unzerCheckoutEl = createUnzerCheckoutEl(methodCode);
-
-                    mountRef.current.appendChild(unzerPaymentEl);
-                    mountRef.current.appendChild(unzerCheckoutEl);
-
-                    paymentElRef.current = unzerPaymentEl;
-                    checkoutElRef.current = unzerCheckoutEl;
-                }
-            }, 100);
-
-            return () => clearTimeout(timer);
-        }
-    }, [isSelected, sdkReady, mountRef.current]);
-
-    // Register payment handler for Hyvä React Checkout
-    useEffect(() => {
-        if (!isSelected) {
-            registerPaymentAction(methodCode, undefined);
-            registeredRef.current = false;
-            submittingRef.current = false;
-            inflightRef.current = null;
-            return;
-        }
-
-        if (registeredRef.current) return;
-
-        const handler = async (values) => {
-            if (submittingRef.current) {
-                console.warn(
-                    '[UnzerCards] submit in progress or stuck – skipping duplicate call.'
-                );
+    const onPlaceOrder = async ({ values, checkoutEl, methodCode }) => {
+        try {
+            if (!checkoutEl) {
+                setErrorMessage('Card form not ready.');
                 return false;
             }
 
-            const saveCardCheckbox = document.getElementById(
-                'unzer-card-save-card-checkbox'
-            );
-            const shouldSaveCard = saveCardCheckbox?.checked === true;
+            setPageLoader(true);
 
-            try {
-                const checkoutEl = checkoutElRef.current;
-                if (!checkoutEl) throw new Error('Unzer checkout element not ready.');
+            // save card?
+            const shouldSave =
+                document.getElementById(`cards-save-${methodCode}`)?.checked === true;
 
-                const unzerBtn =
-                    checkoutEl.shadowRoot?.querySelector('button') ||
-                    checkoutEl.querySelector('button');
-
-                if (unzerBtn?.disabled) {
-                    setErrorMessage(
-                        'Please fill in all payment details before placing the order.'
-                    );
-                    return false;
-                }
-
-                setPageLoader(true);
-
-                if (paymentElRef.current) {
-                    paymentElRef.current.setAttribute(
-                        'card-detail-mode',
-                        shouldSaveCard ? 'store' : 'none'
-                    );
-                }
-
-                const submitPromise = makeSubmitPromise(checkoutEl, {
-                    methodCode,
-                });
-
-                submittingRef.current = true;
-                inflightRef.current = submitPromise;
-
-                checkoutEl.querySelector(`#unzer-submit-${methodCode}`)?.click();
-
-                const resourceId = await submitPromise;
-
-                let placeOrderPayload;
-                if (appCtx.isLoggedIn) {
-                    placeOrderPayload = {};
-                } else {
-                    placeOrderPayload = {
-                        login: {
-                            email: values?.login?.email || values?.email,
-                        },
-                    };
-                }
-
-                await performPlaceOrder(placeOrderPayload, {
-                    additionalData: {
-                        resource_id: resourceId,
-                        is_active_payment_token_enabler: shouldSaveCard ? '1' : '0',
-                    },
-                });
-
-                window.location.replace(
-                    `${window.BASE_URL || '/'}unzer/payment/redirect`
+            // set "store" mode directly on element
+            const paymentEl = checkoutEl.previousSibling;
+            if (paymentEl) {
+                paymentEl.setAttribute(
+                    'card-detail-mode',
+                    shouldSave ? 'store' : 'none'
                 );
-
-                return true;
-            } catch (err) {
-                console.error('[UnzerCards] Unzer/payment flow failed:', err);
-                setErrorMessage(
-                    err?.message || 'This transaction could not be performed.'
-                );
-                return false;
-            } finally {
-                submittingRef.current = false;
-                inflightRef.current = null;
-                setPageLoader(false);
             }
-        };
 
-        registerPaymentAction(methodCode, handler);
-        registeredRef.current = true;
+            const submitPromise = makeSubmitPromise(checkoutEl, { methodCode });
+            checkoutEl.querySelector(`#unzer-submit-${methodCode}`)?.click();
 
-        return () => {
-            registerPaymentAction(methodCode, undefined);
-            registeredRef.current = false;
-            submittingRef.current = false;
-            inflightRef.current = null;
-        };
-    }, [
-        isSelected,
-        methodCode,
-        registerPaymentAction,
-        performPlaceOrder,
-        setPageLoader,
-        setErrorMessage,
-    ]);
+            const resourceId = await submitPromise;
+            if (!resourceId) {
+                setErrorMessage('Failed to get card resource ID.');
+                return false;
+            }
 
-    const isLoggedIn = Object.keys(appCtx.customer || {}).length > 0;
+            const payload = {};
+            if (!isLoggedIn) {
+                payload.login = { email: values?.login?.email || values?.email };
+            }
+
+            await performPlaceOrder(payload, {
+                additionalData: {
+                    resource_id: resourceId,
+                    is_active_payment_token_enabler: shouldSave ? '1' : '0',
+                },
+            });
+
+            return true;
+        } catch (err) {
+            console.error('[UnzerCards]', err);
+            setErrorMessage(err?.message || 'Unable to process card payment.');
+            return false;
+        } finally {
+            setPageLoader(false);
+        }
+    };
 
     return (
         <div>
-            <RadioInput
-                value={method.code}
-                label={method.title}
-                name="paymentMethod"
-                checked={isSelected}
-                onChange={actions.change}
+            <BaseUnzerRedirect
+                {...props}
+                paymentTag="unzer-card"
+                onPlaceOrder={onPlaceOrder}
             />
 
-            {isSelected && (
-                <div
-                    id={`unzer-mount-${methodCode}`}
-                    ref={mountRef}
-                    key={`unzer-mount-${methodCode}-${
-                        isSelected ? 'selected' : 'deselected'
-                    }`}
-                    style={{
-                        marginTop: 12,
-                        display: 'grid',
-                        gap: '0.75rem',
-                        minHeight: 160,
-                    }}
-                />
-            )}
-
-            {isSelected && isLoggedIn && (
+            {/* Save card checkbox */}
+            {isLoggedIn && props.selected?.code === props.method?.code && (
                 <label
-                    htmlFor="unzer-card-save-card-checkbox"
-                    style={{
-                        display: 'flex',
-                        gap: '0.5rem',
-                        alignItems: 'center',
-                        marginTop: '0.5rem',
-                    }}
+                    htmlFor={`cards-save-${methodCode}`}
+                    style={{ display: 'flex', gap: 8, marginTop: 8 }}
                 >
-                    <input type="checkbox" id="unzer-card-save-card-checkbox" />
-                    <span id="unzer-card-save-card-typography">Save for later use.</span>
+                    <input type="checkbox" id={`cards-save-${methodCode}`} />
+                    Save this card
                 </label>
             )}
         </div>
     );
 }
-
-UnzerCards.propTypes = {
-    method: paymentMethodShape.isRequired,
-    selected: paymentMethodShape.isRequired,
-    actions: shape({
-        change: func,
-    }).isRequired,
-};

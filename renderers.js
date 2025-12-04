@@ -8,7 +8,6 @@ import UnzerAlipay from './src/components/Alipay';
 import UnzerWechatPay from './src/components/WechatPay';
 import UnzerPrepayment from './src/components/Prepayment';
 import UnzerKlarna from './src/components/Klarna';
-import UnzerWero from './src/components/Wero';
 import UnzerEPS from './src/components/EPS';
 import UnzerPrzelewy24 from './src/components/Przelewy24';
 import UnzerTwint from './src/components/Twint';
@@ -29,7 +28,6 @@ export default {
   unzer_wechatpay: UnzerWechatPay,
   unzer_prepayment: UnzerPrepayment,
   unzer_klarna: UnzerKlarna,
-  unzer_wero: UnzerWero,
   unzer_eps: UnzerEPS,
   unzer_przelewy24: UnzerPrzelewy24,
   unzer_twint: UnzerTwint,

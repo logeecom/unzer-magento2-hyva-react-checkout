@@ -1,233 +1,81 @@
-import React, { useEffect, useRef } from 'react';
-import { shape, func } from 'prop-types';
-import { paymentMethodShape } from '../../../../utils/payment';
-import RadioInput from '../../../../components/common/Form/RadioInput';
+/* eslint-disable */
+import React from 'react';
+import BaseUnzerRedirect from './BaseUnzerRedirect';
 
-import useUnzerSdk from '../hooks/useUnzerSdk';
-import { getUnzerPublicKey, getLocale } from '../utility/config';
-
-import {
-  createUnzerPaymentEl,
-  createUnzerCheckoutEl,
-} from '../dom/createElements';
-
-import { makeSubmitPromise } from '../dom/submit';
-import useCheckoutFormContext from '../../../../hook/useCheckoutFormContext';
 import usePerformPlaceOrderByREST from '../../../../hook/usePerformPlaceOrderByREST';
 import useAppContext from '../../../../hook/useAppContext';
-import useCartContext from '../../../../hook/useCartContext';
-import { refreshUnzerFromContexts } from '../utility/snapshot';
+import { makeSubmitPromise } from '../dom/submit';
 
-export default function UnzerSepaDirectDebit({ method, selected, actions }) {
-  const methodCode = method?.code || 'unzer_direct_debit';
-  const isSelected = methodCode === selected?.code;
-
-  const cartCtx = useCartContext();
-  const appCtx = useAppContext();
-
-  const { registerPaymentAction } = useCheckoutFormContext();
+export default function UnzerSepaDirectDebit(props) {
+  const methodCode = props.method?.code || 'unzer_direct_debit';
   const performPlaceOrder = usePerformPlaceOrderByREST(methodCode);
-  const { setPageLoader, setErrorMessage } = useAppContext();
+  const { setPageLoader, setErrorMessage, isLoggedIn } = useAppContext();
 
-  const sdkReady = useUnzerSdk({
-    components: ['unzer-sepa-direct-debit'],
-    waitForCheckout: true,
-  });
-
-  const publicKey = getUnzerPublicKey(methodCode);
-  const locale = getLocale();
-
-  const mountRef = useRef(null);
-  const paymentElRef = useRef(null);
-  const checkoutElRef = useRef(null);
-
-  const submittingRef = useRef(false);
-  const inflightRef = useRef(null);
-  const registeredRef = useRef(false);
-
-  /**
-   * Mount Unzer form
-   */
-  useEffect(() => {
-    if (!isSelected || !sdkReady || !mountRef.current) {
-      return undefined;
-    }
-
-    const mountNode = mountRef.current;
-
-    mountNode.innerHTML = '';
-
-    const unzerPaymentEl = createUnzerPaymentEl({
-      methodCode,
-      publicKey,
-      locale,
-      paymentTag: 'unzer-sepa-direct-debit',
-    });
-
-    const unzerCheckoutEl = createUnzerCheckoutEl(methodCode);
-
-    mountNode.appendChild(unzerPaymentEl);
-    mountNode.appendChild(unzerCheckoutEl);
-
-    paymentElRef.current = unzerPaymentEl;
-    checkoutElRef.current = unzerCheckoutEl;
-
-    refreshUnzerFromContexts(paymentElRef.current, cartCtx.cart, appCtx);
-
-    return () => {
-      mountNode.innerHTML = '';
-      paymentElRef.current = null;
-      checkoutElRef.current = null;
-    };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSelected, sdkReady, publicKey, locale]);
-
-  /**
-   * Register handler
-   */
-  useEffect(() => {
-    if (!isSelected) {
-      registerPaymentAction(methodCode, undefined);
-      registeredRef.current = false;
-      submittingRef.current = false;
-      inflightRef.current = null;
-      return undefined;
-    }
-
-    if (registeredRef.current) return undefined;
-
-    const handler = async (values) => {
-      if (submittingRef.current) return false;
-
-      let success = false;
-
-      try {
-        const checkoutEl = checkoutElRef.current;
-        if (!checkoutEl) {
-          setErrorMessage('SEPA form not ready.');
-          return false;
-        }
-
-        const button =
-            checkoutEl.shadowRoot?.querySelector('button') ||
-            checkoutEl.querySelector('button');
-
-        if (button?.disabled) {
-          setErrorMessage('Please fill in your IBAN and account holder.');
-          return false;
-        }
-
-        setPageLoader(true);
-
-        const saveCheckbox = document.getElementById(
-            `sepa-save-token-${methodCode}`
-        );
-        const shouldSave = saveCheckbox?.checked ? '1' : '0';
-
-        const submitPromise = makeSubmitPromise(checkoutEl, { methodCode });
-
-        refreshUnzerFromContexts(paymentElRef.current, cartCtx.cart, appCtx);
-
-        submittingRef.current = true;
-        inflightRef.current = submitPromise;
-
-        checkoutEl.querySelector(`#unzer-submit-${methodCode}`)?.click();
-
-        const mandateId = await submitPromise;
-
-        const placeOrderPayload = {};
-        if (!appCtx.isLoggedIn) {
-          placeOrderPayload.login = {
-            email: values?.login?.email || values?.email,
-          };
-        }
-
-        await performPlaceOrder(placeOrderPayload, {
-          additionalData: {
-            resource_id: mandateId,
-            is_active_payment_token_enabler: shouldSave,
-          },
-        });
-
-        window.location.replace(
-            `${window.BASE_URL || '/'}unzer/payment/redirect`
-        );
-
-        success = true;
-      } catch (err) {
-        console.error('[UnzerSepaDirectDebit] error:', err);
-        setErrorMessage(
-            err?.message || 'Cannot process SEPA direct debit mandate.'
-        );
-        success = false;
-      } finally {
-        submittingRef.current = false;
-        inflightRef.current = null;
-        setPageLoader(false);
+  const onPlaceOrder = async ({ values, checkoutEl }) => {
+    try {
+      if (!checkoutEl) {
+        setErrorMessage('SEPA form not ready.');
+        return false;
       }
 
-      return success;
-    };
+      setPageLoader(true);
 
-    registerPaymentAction(methodCode, handler);
-    registeredRef.current = true;
+      const submitPromise = makeSubmitPromise(checkoutEl, { methodCode });
+      checkoutEl.querySelector(`#unzer-submit-${methodCode}`)?.click();
 
-    return () => {
-      registerPaymentAction(methodCode, undefined);
-      registeredRef.current = false;
-      submittingRef.current = false;
-      inflightRef.current = null;
-    };
+      const resourceId = await submitPromise;
+      if (!resourceId) {
+        setErrorMessage('SEPA: resourceId missing.');
+        return false;
+      }
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSelected]);
+      const shouldSave = document.getElementById(`sepa-save-${methodCode}`)
+          ?.checked
+          ? '1'
+          : '0';
 
-  const isLoggedIn = Object.keys(appCtx.customer || {}).length > 0;
+      const payload = {};
+      if (!isLoggedIn) {
+        payload.login = { email: values?.login?.email || values?.email };
+      }
+
+      const result = await performPlaceOrder(payload, {
+        additionalData: {
+          resource_id: resourceId,
+          is_active_payment_token_enabler: shouldSave,
+        },
+      });
+
+      window.location.href =
+          result?.redirect_url ||
+          `${window.BASE_URL || '/'}unzer/payment/redirect`;
+      return true;
+    } catch (err) {
+      console.error('[UnzerSepaDirectDebit]', err);
+      setErrorMessage(err?.message || 'Unable to process SEPA direct debit.');
+      return false;
+    } finally {
+      setPageLoader(false);
+    }
+  };
 
   return (
       <div>
-        <RadioInput
-            value={method.code}
-            label={method.title}
-            name="paymentMethod"
-            checked={isSelected}
-            onChange={actions.change}
+        <BaseUnzerRedirect
+            {...props}
+            paymentTag="unzer-sepa-direct-debit"
+            onPlaceOrder={onPlaceOrder}
         />
 
-        {isSelected && (
-            <div
-                id={`unzer-mount-${methodCode}`}
-                ref={mountRef}
-                style={{
-                  marginTop: 12,
-                  display: 'grid',
-                  gap: '0.75rem',
-                  minHeight: 160,
-                }}
-            />
-        )}
-
-        {isSelected && isLoggedIn && (
+        {isLoggedIn && props.selected?.code === props.method?.code && (
             <label
-                htmlFor={`sepa-save-token-${methodCode}`}
-                style={{
-                  display: 'flex',
-                  gap: '0.5rem',
-                  alignItems: 'center',
-                  marginTop: '0.5rem',
-                }}
+                htmlFor={`sepa-save-${methodCode}`}
+                style={{ display: 'flex', gap: 8, marginTop: 8 }}
             >
-              <input type="checkbox" id={`sepa-save-token-${methodCode}`} />
-              <span id="unzer-card-save-card-typography">Save for later use.</span>
+              <input type="checkbox" id={`sepa-save-${methodCode}`} />
+              Save for later use
             </label>
         )}
       </div>
   );
 }
-
-UnzerSepaDirectDebit.propTypes = {
-  method: paymentMethodShape.isRequired,
-  selected: paymentMethodShape.isRequired,
-  actions: shape({ change: func }).isRequired,
-};
