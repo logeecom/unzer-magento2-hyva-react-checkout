@@ -1,45 +1,51 @@
 /* eslint-disable */
 import React, { useEffect, useRef, useCallback } from 'react';
-import PropTypes from 'prop-types';
-
 import RadioInput from '../../../../components/common/Form/RadioInput';
 
 import useUnzerSdk from '../hooks/useUnzerSdk';
-import { getUnzerPublicKey, getLocale } from '../utility/config';
+import useUnzerPerformPlaceOrder from '../hooks/useUnzerPlaceOrder';
 
+import {
+    getUnzerPublicKey,
+    getLocale,
+    getEnableClickToPay,
+} from '../utility/config';
 import {
     createUnzerPaymentEl,
     createUnzerCheckoutEl,
 } from '../dom/createElements';
+import { makeSubmitPromise } from '../dom/submit';
 
 import useCartContext from '../../../../hook/useCartContext';
 import useAppContext from '../../../../hook/useAppContext';
 import useCheckoutFormContext from '../../../../hook/useCheckoutFormContext';
 import { refreshUnzerFromContexts } from '../utility/snapshot';
 
-/**
- * Base component for redirect-based Unzer payment methods.
- */
 export default function BaseUnzerRedirect({
                                               method,
                                               selected,
                                               actions,
                                               paymentTag,
-                                              onPlaceOrder,
                                               beforeSnapshot,
+                                              submitHandler,
+                                              buildAdditionalData,
                                           }) {
     const methodCode = method?.code || '';
     const isSelected = methodCode === selected?.code;
 
+    const enableCTP = getEnableClickToPay(methodCode);
+
+    const performPlaceOrder = useUnzerPerformPlaceOrder(methodCode);
+
     const cartCtx = useCartContext();
     const appCtx = useAppContext();
+    const { isLoggedIn, setPageLoader, setErrorMessage } = appCtx;
     const { registerPaymentAction } = useCheckoutFormContext();
 
     const sdkReady = useUnzerSdk({
         components: [paymentTag],
         waitForCheckout: true,
     });
-
     const publicKey = getUnzerPublicKey(methodCode);
     const locale = getLocale();
 
@@ -50,52 +56,38 @@ export default function BaseUnzerRedirect({
     const submittingRef = useRef(false);
     const registeredRef = useRef(false);
 
-    const onPlaceOrderRef = useRef(onPlaceOrder);
-    onPlaceOrderRef.current = onPlaceOrder;
-
     /**
-     * Mount <unzer-payment> + <unzer-checkout>
+     * Mount Unzer elements
      */
     const mountUnzerElements = useCallback(() => {
         if (!isSelected || !sdkReady || !mountRef.current) return;
 
-        paymentElRef.current = null;
-        checkoutElRef.current = null;
-
         const node = mountRef.current;
         node.innerHTML = '';
 
-        const unzerPaymentEl = createUnzerPaymentEl({
+        const paymentEl = createUnzerPaymentEl({
             methodCode,
             publicKey,
             locale,
+            enableCTP,
             paymentTag,
         });
+        const checkoutEl = createUnzerCheckoutEl(methodCode);
 
-        const unzerCheckoutEl = createUnzerCheckoutEl(methodCode);
+        node.appendChild(paymentEl);
+        node.appendChild(checkoutEl);
 
-        node.appendChild(unzerPaymentEl);
-        node.appendChild(unzerCheckoutEl);
-
-        paymentElRef.current = unzerPaymentEl;
-        checkoutElRef.current = unzerCheckoutEl;
+        paymentElRef.current = paymentEl;
+        checkoutElRef.current = checkoutEl;
 
         try {
-            const snap = refreshUnzerFromContexts(
-                unzerPaymentEl,
-                cartCtx.cart,
-                appCtx
-            );
-            if (beforeSnapshot) beforeSnapshot(unzerPaymentEl, snap);
+            const snap = refreshUnzerFromContexts(paymentEl, cartCtx.cart, appCtx);
+            beforeSnapshot?.(paymentEl, snap);
         } catch {}
     }, [isSelected, sdkReady, paymentTag]);
 
-    /**
-     * Mount + cleanup
-     */
     useEffect(() => {
         mountUnzerElements();
-
         return () => {
             if (mountRef.current) mountRef.current.innerHTML = '';
             paymentElRef.current = null;
@@ -104,7 +96,7 @@ export default function BaseUnzerRedirect({
     }, [mountUnzerElements]);
 
     /**
-     * Register handler only once per selection
+     * Register default submit handler
      */
     useEffect(() => {
         if (!isSelected) {
@@ -120,14 +112,49 @@ export default function BaseUnzerRedirect({
             if (submittingRef.current) return false;
             submittingRef.current = true;
 
+            const checkoutEl = checkoutElRef.current;
+            if (!checkoutEl) return false;
+
             try {
-                const checkoutEl = checkoutElRef.current;
-                return await onPlaceOrderRef.current({
+                setPageLoader(true);
+
+                let submitResult;
+
+                if (submitHandler) {
+                    // CUSTOM submit
+                    submitResult = await submitHandler({ checkoutEl, methodCode });
+                } else {
+                    // DEFAULT redirect submit
+                    const submitPromise = makeSubmitPromise(checkoutEl, { methodCode });
+                    checkoutEl.querySelector(`#unzer-submit-${methodCode}`)?.click();
+                    const resourceId = await submitPromise;
+                    submitResult = { resourceId };
+                }
+
+                // 2. Build payload
+                const payload = {};
+                if (!isLoggedIn) {
+                    payload.login = { email: values?.login?.email || values?.email };
+                }
+
+                const additionalData = buildAdditionalData?.(submitResult, {
                     values,
-                    checkoutEl,
-                    methodCode,
+                    appCtx,
+                    cartCtx,
+                }) ?? { resource_id: submitResult.resourceId };
+
+                // 3. Perform place order
+                await performPlaceOrder(payload, {
+                    additionalData,
                 });
+
+                return true;
+            } catch (err) {
+                console.error('[BaseUnzerRedirect]', err);
+                setErrorMessage(err?.message || 'Unable to process payment.');
+                return false;
             } finally {
+                setPageLoader(false);
                 submittingRef.current = false;
             }
         };
