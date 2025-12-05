@@ -1,20 +1,27 @@
 /* eslint-disable */
 import React, { useCallback, useState, useEffect } from 'react';
 import { shape, func } from 'prop-types';
+
+import RadioInput from '../../../../components/common/Form/RadioInput';
 import { paymentMethodShape } from '../../../../utils/payment';
 
-import BaseUnzerRedirect from './BaseUnzerRedirect';
 import { getCheckoutConfig } from '../utility/config';
-import useHidePlaceOrderForWalletMethods from '../hooks/useHidePlaceOrderButton';
+import { buildSnapshot } from '../utility/snapshot';
+
+import useAppContext from '../../../../hook/useAppContext';
+import useCartContext from '../../../../hook/useCartContext';
+import BaseUnzerWallet from './BaseUnzerWallet';
 
 export default function UnzerApplePay({ method, selected, actions }) {
   const methodCode = method?.code || 'unzer_applepayv2';
   const isSelected = methodCode === selected?.code;
+
   const cfg = getCheckoutConfig();
   const applePayCfg = cfg.payment[methodCode];
   const [appleAvailable, setAppleAvailable] = useState(true);
 
-  useHidePlaceOrderForWalletMethods(isSelected, methodCode);
+  const cartCtx = useCartContext();
+  const appCtx = useAppContext();
 
   useEffect(() => {
     try {
@@ -28,93 +35,158 @@ export default function UnzerApplePay({ method, selected, actions }) {
     }
   }, []);
 
-  const beforeSnapshot = useCallback(
-      (paymentEl, snap) => {
-        if (!paymentEl || !applePayCfg || !appleAvailable) return;
+  // Configure Apple Pay data
+  const setApplePayData = useCallback(
+      async (unzerPaymentEl, maxRetries = 10, interval = 500) => {
+        return new Promise((resolve, reject) => {
+          let retries = 0;
 
-        const setApplePayData = async () => {
-          const maxRetries = 10;
-          const interval = 500;
+          const trySetData = () => {
+            const applePayEl = document.querySelector(
+                `#unzer-payment-${methodCode}`
+            );
 
-          return new Promise((resolve, reject) => {
-            let retries = 0;
+            if (applePayEl && typeof applePayEl.setApplePayData === 'function') {
+              const snap = buildSnapshot(cartCtx.cart, appCtx);
 
-            const trySetData = () => {
-              if (paymentEl && typeof paymentEl.setApplePayData === 'function') {
-                const supportedNetworks = (
-                    applePayCfg.supportedNetworks || []
-                ).map((x) => String(x).toLowerCase());
+              // Get country code from billing address or config
+              const countryCode =
+                  snap.customer?.billingAddress?.country ||
+                  applePayCfg?.country_code ||
+                  'DE';
 
-                const merchantCapabilities = applePayCfg.merchantCapabilities || [
+              // Get currency from snapshot or config
+              const currencyCode = snap.currency || cfg.currency?.code;
+
+              // Format amount
+              const totalAmount = Number(snap.grandTotal || 0).toFixed(2);
+
+              // Prepare Apple Pay payment request
+              const applePayPaymentRequest = {
+                countryCode,
+                currencyCode,
+                totalLabel: applePayCfg?.label || cfg.store?.name || 'Apple Pay',
+                totalAmount,
+                supportedNetworks: applePayCfg?.supportedNetworks || [],
+                merchantCapabilities: applePayCfg?.merchantCapabilities || [
                   'supports3DS',
-                ];
+                ],
+                requiredShippingContactFields: [],
+                requiredBillingContactFields: [],
+                total: {
+                  label: applePayCfg?.label || cfg.store?.name || 'Apple Pay',
+                  amount: totalAmount,
+                },
+              };
 
-                const label = applePayCfg.label || cfg.store?.name || 'Apple Pay';
+              console.log(
+                  '[Unzer ApplePay] Setting Apple Pay data:',
+                  applePayPaymentRequest
+              );
 
-                paymentEl.setApplePayData({
-                  countryCode: snap.billing?.country || 'DE',
-                  currencyCode: snap.currency,
-                  totalLabel: label,
-                  totalAmount: String(snap.grandTotal.toFixed(2)),
-                  supportedNetworks,
-                  merchantCapabilities,
-                  requiredShippingContactFields: [],
-                  requiredBillingContactFields: [],
-                  total: {
-                    label,
-                    amount: String(snap.grandTotal.toFixed(2)),
-                  },
-                });
-                resolve(true);
-              } else if (retries < maxRetries) {
-                retries += 1;
-                setTimeout(trySetData, interval);
-              } else {
-                reject(new Error('Apple Pay element not ready'));
-              }
-            };
+              applePayEl.setApplePayData(applePayPaymentRequest);
+              console.log('[Unzer ApplePay] Apple Pay data set successfully');
+              resolve(true);
+            } else if (retries < maxRetries) {
+              retries++;
+              console.warn(
+                  `[Unzer ApplePay] Element not ready yet → retrying... (${retries}/${maxRetries})`
+              );
+              setTimeout(trySetData, interval);
+            } else {
+              console.error(
+                  '[Unzer ApplePay] Failed to set Apple Pay data after multiple retries'
+              );
+              reject(new Error('Apple Pay element not ready'));
+            }
+          };
 
-            trySetData();
-          });
-        };
-
-        setApplePayData().catch((err) => {
-          console.error('[Unzer ApplePay] Failed to set Apple Pay data:', err);
+          trySetData();
         });
       },
-      [applePayCfg, appleAvailable, cfg.store?.name]
+      [cartCtx.cart, appCtx, cfg, applePayCfg, methodCode]
   );
 
-  const submitHandler = useCallback(async ({ checkoutEl, methodCode }) => {
-    return null;
-  }, []);
+  // SET CUSTOMER DATA
+  const setCustomerAndBasketData = useCallback(
+      async (unzerPaymentEl, maxRetries = 10, interval = 500) => {
+        return new Promise((resolve, reject) => {
+          let retries = 0;
 
-  const buildAdditionalData = useCallback(
-      (submitResult, { values, appCtx, cartCtx }) => {
-        const additionalData = {
-          resource_id: submitResult.resourceId,
-        };
+          const trySetData = () => {
+            const el = document.querySelector(`#unzer-payment-${methodCode}`);
 
-        const billing =
-            cartCtx.cart?.billing_address || cartCtx.cart?.billingAddress;
-        additionalData.customer_type =
-            billing?.company && billing.company.trim() !== '' ? 'B2B' : 'B2C';
+            if (
+                el &&
+                typeof el.setBasketData === 'function' &&
+                typeof el.setCustomerData === 'function'
+            ) {
+              const snap = buildSnapshot(cartCtx.cart, appCtx);
 
-        return additionalData;
+              // Set basket data
+              el.setBasketData({
+                amount: snap.grandTotal,
+                currencyType: snap.currency,
+              });
+
+              // Set customer data
+              console.log(
+                  '[Unzer ApplePay] Setting customer data:',
+                  snap.customer
+              );
+              el.setCustomerData(snap.customer);
+
+              resolve(true);
+            } else if (retries < maxRetries) {
+              retries++;
+              console.warn(
+                  `[Unzer ApplePay] Customer/Basket data functions not ready → retrying... (${retries}/${maxRetries})`
+              );
+              setTimeout(trySetData, interval);
+            } else {
+              console.error(
+                  '[Unzer ApplePay] Failed to set customer/basket data after multiple retries'
+              );
+              reject(new Error('Customer/Basket data functions not ready'));
+            }
+          };
+
+          trySetData();
+        });
       },
-      []
+      [cartCtx.cart, appCtx, methodCode]
   );
 
+  // Configure payment data callback
+  const onConfigurePaymentData = useCallback(
+      async (unzerPaymentEl) => {
+        // Set customer and basket data FIRST
+        await setCustomerAndBasketData(unzerPaymentEl);
+
+        // Then set Apple Pay data
+        await setApplePayData(unzerPaymentEl);
+      },
+      [setCustomerAndBasketData, setApplePayData]
+  );
+
+  // Use base wallet component
+  const { mountRef } = BaseUnzerWallet({
+    methodCode,
+    isSelected,
+    paymentTag: 'unzer-apple-pay',
+    customElementName: 'unzer-apple-pay',
+    onConfigurePaymentData,
+  });
+
+  // RENDER
   return (
       <div>
-        <BaseUnzerRedirect
-            method={method}
-            selected={selected}
-            actions={actions}
-            paymentTag="unzer-apple-pay"
-            beforeSnapshot={beforeSnapshot}
-            submitHandler={submitHandler}
-            buildAdditionalData={buildAdditionalData}
+        <RadioInput
+            value={method.code}
+            label={method.title}
+            name="paymentMethod"
+            checked={isSelected}
+            onChange={actions.change}
         />
 
         {isSelected && !appleAvailable && (
