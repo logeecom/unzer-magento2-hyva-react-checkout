@@ -39,7 +39,7 @@ export default function UnzerPaypal(props) {
                         style={{ display: 'flex', gap: 8, marginTop: 8 }}
                     >
                         <input type="checkbox" id={`paypal-save-${methodCode}`} />
-                        Save for later use
+                        Save for later use.
                     </label>
                 )}
         </div>

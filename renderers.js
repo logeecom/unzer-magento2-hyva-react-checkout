@@ -11,11 +11,13 @@ import UnzerKlarna from './src/components/Klarna';
 import UnzerEPS from './src/components/EPS';
 import UnzerPrzelewy24 from './src/components/Przelewy24';
 import UnzerTwint from './src/components/Twint';
+import UnzerWero from './src/components/Wero';
 import UnzerGooglePay from './src/components/Googlepay';
 import UnzerApplePay from './src/components/Applepay';
 import UnzerBancontact from './src/components/Bancontact';
 import UnzerCardsVault from './src/components/UnzerCardsVault';
 import UnzerPayPalVault from './src/components/PaypalVault';
+import UnzerSepaDirectDebitVault from './src/components/DirectDebitVault';
 
 export default {
   unzer_cards: UnzerCards,
@@ -31,9 +33,11 @@ export default {
   unzer_eps: UnzerEPS,
   unzer_przelewy24: UnzerPrzelewy24,
   unzer_twint: UnzerTwint,
+  unzer_wero: UnzerWero,
   unzer_googlepay: UnzerGooglePay,
   unzer_applepayv2: UnzerApplePay,
   unzer_bancontact: UnzerBancontact,
   unzer_cards_vault: UnzerCardsVault,
   unzer_paypal_vault: UnzerPayPalVault,
+  unzer_direct_debit_vault: UnzerSepaDirectDebitVault,
 };

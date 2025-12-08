@@ -46,7 +46,7 @@ export default function UnzerCards(props) {
                         style={{ display: 'flex', gap: 8, marginTop: 8 }}
                     >
                         <input type="checkbox" id={`cards-save-${methodCode}`} />
-                        Save this card
+                        Save for later use.
                     </label>
                 )}
         </div>

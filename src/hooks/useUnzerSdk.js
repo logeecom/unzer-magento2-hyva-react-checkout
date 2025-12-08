@@ -29,6 +29,7 @@ export default function useUnzerSdk({
                                             ['unzer-wero'],
                                             ['unzer-eps'],
                                             ['unzer-twint'],
+                                            ['unzer-wero'],
                                             ['unzer-google-pay'],
                                             ['unzer-apple-pay'],
                                             ['unzer-bancontact'],
