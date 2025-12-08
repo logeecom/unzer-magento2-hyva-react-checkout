@@ -181,7 +181,6 @@ export default function BaseUnzerRedirect({
                         marginTop: 12,
                         display: 'grid',
                         gap: '1rem',
-                        minHeight: 160,
                     }}
                 />
             )}

@@ -167,7 +167,6 @@ export default function UnzerGooglePay({ method, selected, actions }) {
                             marginTop: 12,
                             display: 'grid',
                             gap: '1rem',
-                            minHeight: 160,
                             position: 'relative',
                         }}
                     />

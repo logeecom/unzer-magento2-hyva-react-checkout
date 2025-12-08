@@ -2,10 +2,13 @@
 import React from 'react';
 import BaseUnzerRedirect from './BaseUnzerRedirect';
 import useAppContext from '../../../../hook/useAppContext';
+import usePaymentMethodCartContext from '../../../../components/paymentMethod/hooks/usePaymentMethodCartContext';
 
 export default function UnzerCards(props) {
     const methodCode = props.method?.code || 'unzer_cards';
     const { isLoggedIn } = useAppContext();
+    const { methodList } = usePaymentMethodCartContext();
+    const isEnabled = !!methodList['unzer_cards_vault'];
 
     const beforeSnapshot = (paymentEl) => {
         const shouldSave = document.getElementById(
@@ -35,15 +38,17 @@ export default function UnzerCards(props) {
                 buildAdditionalData={buildAdditionalData}
             />
 
-            {isLoggedIn && props.selected?.code === props.method?.code && (
-                <label
-                    htmlFor={`cards-save-${methodCode}`}
-                    style={{ display: 'flex', gap: 8, marginTop: 8 }}
-                >
-                    <input type="checkbox" id={`cards-save-${methodCode}`} />
-                    Save this card
-                </label>
-            )}
+            {isLoggedIn &&
+                isEnabled &&
+                props.selected?.code === props.method?.code && (
+                    <label
+                        htmlFor={`cards-save-${methodCode}`}
+                        style={{ display: 'flex', gap: 8, marginTop: 8 }}
+                    >
+                        <input type="checkbox" id={`cards-save-${methodCode}`} />
+                        Save this card
+                    </label>
+                )}
         </div>
     );
 }
